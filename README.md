@@ -1,6 +1,6 @@
 # acm-nmap
 
-acm-nmap is a Golang-based API service that leverages the nmap tool to scan IP addresses and retrieve open ports, running services, and their versions. The service supports parallel scanning of up to 10 IPs at a time, stores scan results temporarily for one hour, and provides API endpoints to check scan statuses and logs.
+acm-nmap is a Golang-based API service that leverages the nmap tool to scan IP addresses and retrieve open ports, running services, and their versions. The service supports parallel scanning of up to 10 IPs at a time, stores scan results temporarily for one hour, and provides API endpoints to check scan statuses and logs. 
 
 ## Features
 
@@ -26,7 +26,7 @@ Response:
 ```
 ### 2. Nmap Scan
 
-Endpoint: GET /acm/v1/nmap
+Endpoint: GET /acm/v1/nmap?ip=127.0.0.1
 
 Response:
 ```
@@ -76,3 +76,58 @@ go run main.go
 ```
 
 ### Or directly download from Releases
+
+### Create acm-nmap as a service in linux
+
+Move the binary to /usr/local/bin/ to run it from anywhere:
+```
+sudo mv acm-nmap-linux /usr/local/bin/acm-nmap
+sudo chmod +x /usr/local/bin/acm-nmap
+```
+Create a new service file:
+```
+sudo nano /etc/systemd/system/acm-nmap.service
+```
+Paste the following content:
+```
+[Unit]
+Description=ACM Nmap Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/acm-nmap
+Restart=always
+User=root
+WorkingDirectory=/usr/local/bin
+StandardOutput=append:/var/log/acm-nmap.log
+StandardError=append:/var/log/acm-nmap.log
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+
+```
+Reload Systemd to detect the new service:
+```
+sudo systemctl daemon-reload
+```
+Start the service in the background:
+```
+sudo systemctl start acm-nmap
+```
+Check service status:
+```
+sudo systemctl status acm-nmap
+```
+Enable the service to start on boot:
+```
+sudo systemctl enable acm-nmap
+```
+Stop the service:
+```
+sudo systemctl stop acm-nmap
+```
+Restart the service:
+```
+sudo systemctl restart acm-nmap
+```
