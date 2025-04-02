@@ -42,7 +42,7 @@ curl -H "X-API-Key: mysecretkey" http://localhost:9899/acm/v1/nmap?ip=voz.vn
 Response:
 ```
 {
-  "ip": "127.0.0.1",
+  "ip": "voz.vn/172.67.198.203",
   "status": "completed",
   "ports": [
     { "port": "22/tcp", "service": "ssh", "version": "OpenSSH 7.9p1" },
@@ -62,7 +62,7 @@ curl -H "X-API-Key: mysecretkey" http://localhost:9899/acm/v1/log
 Response (example):
 ```
 {
-  "127.0.0.1":{"status":"completed","timeout":300},
+  "voz.vn/172.67.198.203":{"status":"completed","timeout":300},
   "127.0.0.2":{"status":"completed","timeout":150},
   "127.0.0.3":{"status":"completed","timeout":300}
 }
