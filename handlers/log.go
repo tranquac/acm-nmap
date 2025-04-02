@@ -6,7 +6,6 @@ import (
 	"net/http"
 )
 
-// GetScanLog trả về danh sách IP đang scan và trạng thái của nó
 func GetScanLog(w http.ResponseWriter, r *http.Request) {
 	logData := services.GetCurrentScans()
 

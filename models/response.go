@@ -2,9 +2,10 @@ package models
 
 // ScanResult chứa kết quả scan của một IP
 type ScanResult struct {
-	IP     string     `json:"ip"`
-	Status string     `json:"status"`
-	Ports  []PortInfo `json:"ports"`
+	IP      string         `json:"ip"`
+	Status  string         `json:"status"`
+	Ports   []PortInfo     `json:"ports"`
+	Timeout int            `json:"timeout"`
 }
 
 // PortInfo chứa thông tin về port mở

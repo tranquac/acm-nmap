@@ -24,9 +24,20 @@ Response:
   "message": "pong"
 }
 ```
+Example:
+```
+curl -H "X-API-Key: mysecretkey" http://localhost:9899/acm/v1/ping
+```
 ### 2. Nmap Scan
 
-Endpoint: GET /acm/v1/nmap?ip=127.0.0.1
+Endpoint: GET /acm/v1/nmap?ip=127.0.0.1&timeout=200s
+
+Default timeout is 300s
+
+Example:
+```
+curl -H "X-API-Key: mysecretkey" http://localhost:9899/acm/v1/nmap?ip=voz.vn
+```
 
 Response:
 ```
@@ -36,20 +47,26 @@ Response:
   "ports": [
     { "port": "22/tcp", "service": "ssh", "version": "OpenSSH 7.9p1" },
     { "port": "80/tcp", "service": "http", "version": "Apache 2.4.41" }
-  ]
+  ],
+  "timeout":150
 }
 ```
 ### 3. Scan Log
 
 Endpoint: GET /acm/v1/log
 
+Example:
+```
+curl -H "X-API-Key: mysecretkey" http://localhost:9899/acm/v1/log
+```
 Response (example):
 ```
 {
-  "127.0.0.1": "scanning",
-  "192.168.1.10": "completed",
-  "8.8.8.8": "timeout"
+  "127.0.0.1":{"status":"completed","timeout":300},
+  "127.0.0.2":{"status":"completed","timeout":150},
+  "127.0.0.3":{"status":"completed","timeout":300}
 }
+
 ```
 ## Installation & Running
 

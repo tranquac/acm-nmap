@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"net"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -13,7 +14,6 @@ import (
 )
 
 var (
-	// Regex mới để bắt port, protocol, service và version
 	openPortRegex = regexp.MustCompile(`(?m)^(\d+)/(tcp|udp)\s+open\s+(\S+)\s*(.*)?$`)
 	scanResults   = make(map[string]*models.ScanResult)
 	mu            sync.Mutex
@@ -33,45 +33,65 @@ func init() {
 	}()
 }
 
-// RunNmap kiểm tra trạng thái hoặc bắt đầu scan nếu cần
-func RunNmap(ip string) *models.ScanResult {
+func RunNmap(ipOrDomain string, timeout int) *models.ScanResult {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if result, exists := scanResults[ip]; exists {
-		return result // Trả về nếu IP này đã có kết quả
+	resolvedIP := ipOrDomain
+	ips, err := net.LookupIP(ipOrDomain)
+	if err == nil {
+		for _, ip := range ips {
+			if ip.To4() != nil { // Chỉ lấy IPv4
+				resolvedIP = ip.String()
+				break
+			}
+		}
+	}
+
+	// Format domain/IP nếu input là domain
+	displayIP := resolvedIP
+	if ipOrDomain != resolvedIP {
+		displayIP = fmt.Sprintf("%s/%s", ipOrDomain, resolvedIP)
+	}
+
+	// Nếu đã scan trước đó thì trả về luôn
+	if result, exists := scanResults[resolvedIP]; exists {
+		result.IP = displayIP // Cập nhật IP hiển thị
+		return result
 	}
 
 	// Tạo kết quả mới với trạng thái "scanning"
-	scanResults[ip] = &models.ScanResult{
-		IP:     ip,
-		Status: "scanning",
-		Ports:  []models.PortInfo{},
+	scanResults[resolvedIP] = &models.ScanResult{
+		IP:      displayIP, // Lưu dạng domain/IP
+		Status:  "scanning",
+		Ports:   []models.PortInfo{},
+		Timeout: timeout,
 	}
 
 	// Hàng đợi chỉ cho phép tối đa 10 scan chạy cùng lúc
 	sem <- struct{}{}
 	go func() {
 		defer func() { <-sem }() // Giải phóng slot khi scan xong
-		result := executeNmap(ip)
+		result := executeNmap(resolvedIP, timeout)
+		result.IP = displayIP // Đảm bảo kết quả trả về có domain/IP
 
 		mu.Lock()
-		scanResults[ip] = result
+		scanResults[resolvedIP] = result
 		mu.Unlock()
 	}()
 
-	return scanResults[ip]
+	return scanResults[resolvedIP]
 }
 
-// executeNmap thực thi lệnh Nmap
-func executeNmap(ip string) *models.ScanResult {
+
+func executeNmap(ipOrDomain string, timeout int) *models.ScanResult {
 	result := &models.ScanResult{
-		IP:     ip,
+		IP:     ipOrDomain, // Cập nhật IP là domain/ip nếu cần
 		Status: "scanning",
 		Ports:  []models.PortInfo{},
 	}
 
-	cmd := exec.Command("nmap", "-p-", "-sS", "-sU", "-sV", ip)
+	cmd := exec.Command("nmap", "-p-", "-sS", "-sU", "-sV", ipOrDomain)
 
 	outputChan := make(chan string, 1)
 	go func() {
@@ -91,13 +111,22 @@ func executeNmap(ip string) *models.ScanResult {
 			result.Status = "completed"
 			result.Ports = extractOpenPorts(output)
 		}
-	case <-time.After(300 * time.Second):
+	case <-time.After(time.Duration(timeout) * time.Second):
 		cmd.Process.Kill()
 		result.Status = "timeout"
 	}
 
+	// Trả về domain/ip nếu là domain
+	if net.ParseIP(ipOrDomain) == nil {
+		ips, _ := net.LookupIP(ipOrDomain)
+		if len(ips) > 0 {
+			result.IP = fmt.Sprintf("%s/%s", ipOrDomain, ips[0].String())
+		}
+	}
+
 	return result
 }
+
 
 // extractOpenPorts lọc kết quả Nmap thành danh sách JSON
 func extractOpenPorts(nmapOutput string) []models.PortInfo {
@@ -120,15 +149,20 @@ func extractOpenPorts(nmapOutput string) []models.PortInfo {
 	return ports
 }
 
-
-// GetCurrentScans trả về danh sách IP và trạng thái hiện tại
-func GetCurrentScans() map[string]string {
+func GetCurrentScans() map[string]map[string]interface{} {
 	mu.Lock()
 	defer mu.Unlock()
 
-	scanLog := make(map[string]string)
-	for ip, result := range scanResults {
-		scanLog[ip] = result.Status
+	scanLog := make(map[string]map[string]interface{})
+	for _, result := range scanResults {
+		scanLog[result.IP] = map[string]interface{}{
+			"status":  result.Status,
+			"timeout": result.Timeout,
+		}
 	}
 	return scanLog
 }
+
+
+
+
