@@ -21,5 +21,5 @@ func main() {
     http.Handle("/acm/v1/log", middlewares.CheckAPIKey(http.HandlerFunc(handlers.GetScanLog)))
 
     fmt.Println("Server is running on port 9899...")
-    log.Fatal(http.ListenAndServe(":9899", nil))
+    log.Fatal(http.ListenAndServe(":9897", nil))
 }

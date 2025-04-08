@@ -9,12 +9,14 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"io"
 	"time"
 	"acm-nmap/models"
 )
 
 var (
 	openPortRegex = regexp.MustCompile(`(?m)^(\d+)/(tcp|udp)\s+open\s+(\S+)\s*(.*)?$`)
+	discoveredPortRegex = regexp.MustCompile(`Discovered open port (\d+)/(tcp|udp)`)
 	scanResults   = make(map[string]*models.ScanResult)
 	mu            sync.Mutex
 	sem           = make(chan struct{}, 10) // Giới hạn tối đa 10 scan song song
@@ -86,35 +88,44 @@ func RunNmap(ipOrDomain string, timeout int) *models.ScanResult {
 
 func executeNmap(ipOrDomain string, timeout int) *models.ScanResult {
 	result := &models.ScanResult{
-		IP:     ipOrDomain, // Cập nhật IP là domain/ip nếu cần
+		IP:     ipOrDomain,
 		Status: "scanning",
 		Ports:  []models.PortInfo{},
 	}
 
-	cmd := exec.Command("nmap", "-p-", "-sS", "-sU", "-sV", ipOrDomain)
+	cmd := exec.Command("nmap", "-p-", "-sS", "-sU", "-sV", "-v", ipOrDomain)
 
-	outputChan := make(chan string, 1)
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	if err := cmd.Start(); err != nil {
+		result.Status = "error"
+		return result
+	}
+
+	var rawOutput strings.Builder
+	done := make(chan struct{})
+
+	// Đọc stdout và stderr
 	go func() {
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			outputChan <- fmt.Sprintf("error: %v", err)
-		} else {
-			outputChan <- string(out)
+		scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+		for scanner.Scan() {
+			line := scanner.Text()
+			rawOutput.WriteString(line + "\n")
 		}
+		close(done)
 	}()
 
 	select {
-	case output := <-outputChan:
-		if strings.Contains(output, "Failed to resolve") {
-			result.Status = "can not connect to IP"
-		} else {
-			result.Status = "completed"
-			result.Ports = extractOpenPorts(output)
-		}
+	case <-done:
+		result.Status = "completed"
 	case <-time.After(time.Duration(timeout) * time.Second):
-		cmd.Process.Kill()
 		result.Status = "timeout"
+		cmd.Process.Kill()
+		<-done // Đảm bảo đọc hết buffer
 	}
+
+	// Parse những gì đã có, kể cả khi timeout
+	result.Ports = extractOpenPorts(rawOutput.String())
 
 	// Trả về domain/ip nếu là domain
 	if net.ParseIP(ipOrDomain) == nil {
@@ -128,21 +139,41 @@ func executeNmap(ipOrDomain string, timeout int) *models.ScanResult {
 }
 
 
+
 // extractOpenPorts lọc kết quả Nmap thành danh sách JSON
 func extractOpenPorts(nmapOutput string) []models.PortInfo {
 	scanner := bufio.NewScanner(strings.NewReader(nmapOutput))
 	var ports []models.PortInfo
+	seen := make(map[string]bool)
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		matches := openPortRegex.FindStringSubmatch(line)
-		if len(matches) >= 4 {
-			portInfo := models.PortInfo{
-				Port:    fmt.Sprintf("%s/%s", matches[1], matches[2]),
-				Service: matches[3],
-				Version: strings.TrimSpace(matches[4]), // Lấy version của service (nếu có)
+
+		// Kiểu đầy đủ: "80/tcp open http Apache/2.4.41"
+		if matches := openPortRegex.FindStringSubmatch(line); len(matches) >= 4 {
+			key := fmt.Sprintf("%s/%s", matches[1], matches[2])
+			if !seen[key] {
+				ports = append(ports, models.PortInfo{
+					Port:    key,
+					Service: matches[3],
+					Version: strings.TrimSpace(matches[4]),
+				})
+				seen[key] = true
 			}
-			ports = append(ports, portInfo)
+			continue
+		}
+
+		// Kiểu rút gọn: "Discovered open port 80/tcp on x.x.x.x"
+		if matches := discoveredPortRegex.FindStringSubmatch(line); len(matches) == 3 {
+			key := fmt.Sprintf("%s/%s", matches[1], matches[2])
+			if !seen[key] {
+				ports = append(ports, models.PortInfo{
+					Port:    key,
+					Service: "(unknown)",
+					Version: "",
+				})
+				seen[key] = true
+			}
 		}
 	}
 
